@@ -461,13 +461,25 @@
         async function crawlWebsite(url, format, extractLinks, extractImages, bypassCache, waitTime) {
             const endpoint = format === 'html' ? '/html' : '/crawl';
             
-            const requestBody = {
-                url: url,
-                extract_links: extractLinks,
-                extract_images: extractImages,
-                cache_mode: bypassCache ? 'bypass' : 'enabled',
-                screenshot_wait_for: waitTime
-            };
+            let requestBody;
+            
+            if (format === 'html') {
+                // HTML endpoint expects single URL
+                requestBody = {
+                    url: url
+                };
+            } else {
+                // Crawl endpoint expects URLs array
+                requestBody = {
+                    urls: [url],
+                    crawler_config: {
+                        extract_links: extractLinks,
+                        extract_images: extractImages,
+                        cache_mode: bypassCache ? 'bypass' : 'enabled',
+                        screenshot_wait_for: waitTime
+                    }
+                };
+            }
 
             const response = await fetch(`${CRAWL4AI_URL}${endpoint}`, {
                 method: 'POST',
@@ -555,10 +567,12 @@
                     'Authorization': `Bearer ${API_KEY}`
                 },
                 body: JSON.stringify({
-                    url: url,
-                    scripts: [jsCode],
-                    cache_mode: bypassCache ? 'bypass' : 'enabled',
-                    screenshot_wait_for: waitTime
+                    urls: [url],
+                    crawler_config: {
+                        scripts: [jsCode],
+                        cache_mode: bypassCache ? 'bypass' : 'enabled',
+                        screenshot_wait_for: waitTime
+                    }
                 })
             });
 
@@ -595,16 +609,26 @@
             if (format === 'screenshot' || format === 'pdf') {
                 details = `${format.toUpperCase()} generated successfully`;
             } else {
-                const contentLength = result.markdown ? result.markdown.length : 
-                                   result.html ? result.html.length : 'Unknown';
-                details = `Content extracted: ${contentLength} characters`;
-                
-                if (result.links && result.links.length > 0) {
-                    details += ` | Links found: ${result.links.length}`;
+                // Handle both single result and array of results
+                let contentData;
+                if (Array.isArray(result.results)) {
+                    // Multi-URL response format
+                    contentData = result.results[0]; // Take first result
+                } else {
+                    // Single URL response format
+                    contentData = result;
                 }
                 
-                if (result.images && result.images.length > 0) {
-                    details += ` | Images found: ${result.images.length}`;
+                const contentLength = contentData.markdown ? contentData.markdown.length : 
+                                   contentData.html ? contentData.html.length : 'Unknown';
+                details = `Content extracted: ${contentLength} characters`;
+                
+                if (contentData.links && contentData.links.length > 0) {
+                    details += ` | Links found: ${contentData.links.length}`;
+                }
+                
+                if (contentData.images && contentData.images.length > 0) {
+                    details += ` | Images found: ${contentData.images.length}`;
                 }
             }
             
@@ -638,14 +662,26 @@
                 content = currentResult.data;
                 filename = currentResult.filename;
                 mimeType = currentResult.type;
-            } else if (currentFormat === 'markdown') {
-                content = new Blob([currentResult.markdown || ''], { type: 'text/markdown' });
-                filename = `crawl-result-${Date.now()}.md`;
-                mimeType = 'text/markdown';
-            } else if (currentFormat === 'html') {
-                content = new Blob([currentResult.html || ''], { type: 'text/html' });
-                filename = `crawl-result-${Date.now()}.html`;
-                mimeType = 'text/html';
+            } else {
+                // Handle both single result and array of results
+                let contentData;
+                if (Array.isArray(currentResult.results)) {
+                    // Multi-URL response format
+                    contentData = currentResult.results[0]; // Take first result
+                } else {
+                    // Single URL response format
+                    contentData = currentResult;
+                }
+                
+                if (currentFormat === 'markdown') {
+                    content = new Blob([contentData.markdown || ''], { type: 'text/markdown' });
+                    filename = `crawl-result-${Date.now()}.md`;
+                    mimeType = 'text/markdown';
+                } else if (currentFormat === 'html') {
+                    content = new Blob([contentData.html || ''], { type: 'text/html' });
+                    filename = `crawl-result-${Date.now()}.html`;
+                    mimeType = 'text/html';
+                }
             }
 
             const url = URL.createObjectURL(content);
@@ -663,10 +699,20 @@
 
             let content = '';
             
+            // Handle both single result and array of results
+            let contentData;
+            if (Array.isArray(currentResult.results)) {
+                // Multi-URL response format
+                contentData = currentResult.results[0]; // Take first result
+            } else {
+                // Single URL response format
+                contentData = currentResult;
+            }
+            
             if (currentFormat === 'markdown') {
-                content = currentResult.markdown || 'No content available';
+                content = contentData.markdown || 'No content available';
             } else if (currentFormat === 'html') {
-                content = currentResult.html || 'No content available';
+                content = contentData.html || 'No content available';
             } else {
                 alert('Preview not available for this format. Please download the file.');
                 return;
